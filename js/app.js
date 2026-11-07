@@ -10,6 +10,19 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const { fmt0, fmt2, signed, MON } = C;
 
+// Bump on every release of the web app (also bump VERSION in sw.js).
+const APP_VERSION = "3.1";
+const APP_DATE = "7 Nov 2026";
+/** Where this copy runs: the phone app reports its build number; the website says so. */
+function whereLabel() {
+  try {
+    const b = window.HoldfastLedger?.build?.();
+    if (b) return `Phone app, build ${b}`;
+  } catch {}
+  return navigator.userAgent.includes("HoldfastLedger") ? "Phone app" : "Website (laptop)";
+}
+const versionLine = () => `Riyal Ledger ${APP_VERSION} (${APP_DATE}) · ${whereLabel()}`;
+
 const liveTx = () => C.live(S.tx);
 const cats = kind => (S.settings?.categories || []).filter(c => c.kind === kind);
 const goals = () => S.settings?.goals || [];
@@ -85,7 +98,8 @@ function render() {
           <div class="chart" id="trendChart"></div>${trendTable()}</section>
       </div>
     </div>
-    ${S.installEvt ? `<p class="updated"><button class="linkbtn" data-act="install">Install Riyal Ledger on this device</button></p>` : ""}`;
+    ${S.installEvt ? `<p class="updated"><button class="linkbtn" data-act="install">Install Riyal Ledger on this device</button></p>` : ""}
+    <p class="updated">${esc(versionLine())}</p>`;
   drawCharts();
 }
 const scenario = () => (S.settings.scenarios || []).find(x => x.id === S.scenarioId) || null;
@@ -123,7 +137,8 @@ function renderSavings() {
         <section class="panel"><div class="ph"><h2>Entries</h2><span class="muted" style="font-size:13px">${esc(p.label)}</span></div>${txHtml(p, txs, ["saving", "withdrawal"])}</section>
       </div>
     </div>
-    ${S.installEvt ? `<p class="updated"><button class="linkbtn" data-act="install">Install Riyal Ledger on this device</button></p>` : ""}`;
+    ${S.installEvt ? `<p class="updated"><button class="linkbtn" data-act="install">Install Riyal Ledger on this device</button></p>` : ""}
+    <p class="updated">${esc(versionLine())}</p>`;
   drawSavingsCharts();
 }
 function savedSeries(txs, n = 12) {
@@ -529,7 +544,8 @@ function renderSet() {
         <button class="btn ghost" id="exportCsv">Export CSV</button>
       </div>
       <p class="note">Importing merges a backup into this device: new entries are added, edited ones take the newest version, deletions carry over. Use it to move entries between your phone and laptop.</p>
-      <p class="note">${n} entr${n === 1 ? "y" : "ies"} on this device.</p>`;
+      <p class="note">${n} entr${n === 1 ? "y" : "ies"} on this device.</p>
+      <p class="note">${esc(versionLine())}. Each device keeps its own entries; use backups to move them.</p>`;
   }
 }
 $("#setBody").addEventListener("input", e => {

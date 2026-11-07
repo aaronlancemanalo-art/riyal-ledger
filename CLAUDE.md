@@ -6,6 +6,7 @@ Aaron's personal savings tracker and forecast. Savings-first since v3: he logs w
 - **Data never leaves the device.** No backend, analytics, external APIs or CDN requests at runtime. Fonts are self-hosted in `fonts/`.
 - **No build step.** Plain ES modules that GitHub Pages can serve as they are.
 - **Logic goes in `js/calc.js`** as pure functions with tests in `tests/calc.test.js`. Run `npm test` before every commit; all tests must pass.
+- **Bump `APP_VERSION` and `APP_DATE` in `js/app.js`** on every release; they show in the app footer and Settings > Data so Aaron can tell which version a device runs.
 - **Bump `VERSION` in `sw.js`** whenever any shipped file changes, and add new files to its `SHELL` list, or installed phones keep the old build.
 - **Never rewrite history:** each entry stores `qar` at the rate on the day it was logged. Changing rates in settings must not recalculate old entries.
 - **Deletes are tombstones** (`{id, deleted: true, updated}`) so a backup merge carries them to other devices. Always set `updated` when writing an entry.

@@ -1,6 +1,6 @@
 // Offline support: cache the app shell, serve it cache-first, refresh in the background.
 // Bump VERSION whenever you change any file so phones pick up the new build.
-const VERSION = "rl-v3";
+const VERSION = "rl-v4"; // app 3.1
 const SHELL = [
   "./", "index.html", "css/app.css", "manifest.webmanifest",
   "js/app.js", "js/calc.js", "js/charts.js", "js/store.js", "js/defaults.js",
