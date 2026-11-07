@@ -1,6 +1,6 @@
 // Riyal Ledger: UI wiring. Money logic lives in calc.js, storage in store.js, charts in charts.js.
 import * as C from "./calc.js";
-import { drawPace, drawTrend, drawForecast } from "./charts.js";
+import { drawPace, drawTrend, drawForecast, drawSavedBars } from "./charts.js";
 import * as store from "./store.js";
 import { DEFAULTS } from "./defaults.js";
 
@@ -13,7 +13,9 @@ const { fmt0, fmt2, signed, MON } = C;
 const liveTx = () => C.live(S.tx);
 const cats = kind => (S.settings?.categories || []).filter(c => c.kind === kind);
 const goals = () => S.settings?.goals || [];
-const catName = (kind, id) => (kind === "saving" ? goals() : cats(kind)).find(c => c.id === id)?.name || "Uncategorised";
+const isPot = kind => kind === "saving" || kind === "withdrawal";
+const catName = (kind, id) => (isPot(kind) ? goals() : cats(kind)).find(c => c.id === id)?.name || "Uncategorised";
+const savingsMode = () => !S.settings?.showSpending;
 const periodFor = o => C.period(o, S.settings?.cycleStart || 1);
 const budget = () => C.budgetTotal(S.settings?.categories || []);
 
@@ -45,6 +47,7 @@ async function boot() {
 }
 function normalise(st) {
   st.recurring ||= []; st.scenarios ||= []; st.savingsTarget ||= 0;
+  if (st.showSpending === undefined) st.showSpending = false; // savings-first since v3
   for (const g of st.goals || []) { g.monthly ||= 0; g.growth ||= 0; }
   return st;
 }
@@ -53,6 +56,8 @@ async function reloadTx() { S.tx = await store.allTx(); render(); }
 /* ---------- render ---------- */
 function render() {
   if (!S.settings) return;
+  $("#fab").innerHTML = savingsMode() ? `<span aria-hidden="true">+</span>Save` : `<span aria-hidden="true">+</span>Add`;
+  if (savingsMode()) return renderSavings();
   const p = periodFor(S.offset);
   $("#cycLabel").textContent = p.label;
   $("#next").disabled = S.offset >= 0;
@@ -85,6 +90,7 @@ function render() {
 }
 const scenario = () => (S.settings.scenarios || []).find(x => x.id === S.scenarioId) || null;
 function drawCharts() {
+  if (savingsMode()) return drawSavingsCharts();
   const p = periodFor(S.offset);
   const dd = C.dayToDay(S.settings, liveTx(), p);
   drawPace($("#paceChart"), p, C.cumulative(liveTx(), p, dd.planned), dd.budget);
@@ -94,6 +100,105 @@ function drawCharts() {
     const sc = scenario();
     drawForecast(el, C.forecast(S.settings, liveTx(), S.horizon), sc ? C.forecast(S.settings, liveTx(), S.horizon, sc) : null, sc?.name);
   }
+}
+
+/* ---------- savings-first view ---------- */
+function renderSavings() {
+  const p = periodFor(S.offset);
+  $("#cycLabel").textContent = p.label;
+  $("#next").disabled = S.offset >= 0;
+  $("#fab").hidden = false;
+  const txs = liveTx();
+  const m = C.savedIn(txs, p);
+  $("#app").innerHTML = `
+    <section class="band" aria-label="Summary">${savingsHero(p, m, txs)}</section>
+    <div class="board">
+      <div class="col">
+        <section class="panel"><div class="ph"><h2>Savings forecast</h2><button class="linkbtn" data-act="scenarios">What-ifs</button></div>${savingsForecastHtml(txs)}</section>
+        <section class="panel"><div class="ph"><h2>Goals</h2><button class="linkbtn" data-act="goals">Edit goals</button></div>${goalsHtml(txs)}</section>
+      </div>
+      <div class="col">
+        <section class="panel"><div class="ph"><h2>Saved each month</h2><span class="legend"><span><i class="sw saved"></i>Net saved</span></span></div>
+          <div class="chart" id="savedChart"></div>${savedTable(txs)}</section>
+        <section class="panel"><div class="ph"><h2>Entries</h2><span class="muted" style="font-size:13px">${esc(p.label)}</span></div>${txHtml(p, txs, ["saving", "withdrawal"])}</section>
+      </div>
+    </div>
+    ${S.installEvt ? `<p class="updated"><button class="linkbtn" data-act="install">Install Riyal Ledger on this device</button></p>` : ""}`;
+  drawSavingsCharts();
+}
+function savedSeries(txs, n = 12) {
+  const out = [];
+  for (let k = n - 1; k >= 0; k--) { const p = periodFor(S.offset - k); out.push({ p, ...C.savedIn(txs, p) }); }
+  return out;
+}
+function drawSavingsCharts() {
+  const txs = liveTx();
+  drawSavedBars($("#savedChart"), savedSeries(txs, window.innerWidth < 600 ? 6 : 12), Number(S.settings.savingsTarget) || 0);
+  const el = $("#fcChart");
+  if (el) {
+    const sc = scenario();
+    drawForecast(el, C.savingsForecast(S.settings, txs, S.horizon), sc ? C.savingsForecast(S.settings, txs, S.horizon, sc) : null, sc?.name, "Forecast");
+  }
+}
+function savingsHero(p, m, txs) {
+  const st = S.settings;
+  const total = C.totalSaved(st, txs);
+  const target = Number(st.savingsTarget) || 0;
+  const hist = C.savingsHistory(txs, st.cycleStart);
+  const streak = C.targetStreak(txs, st);
+  const chips = [];
+  if (target) {
+    const left = target - m.net;
+    chips.push(left <= 0 ? `<span class="chip ok">Hit your QAR ${fmt0(target)} target</span>`
+      : p.current ? `<span class="chip ${p.elapsed / p.days > 0.75 ? "warn" : "plain"}">QAR ${fmt0(left)} to go for your ${fmt0(target)} target</span>`
+      : `<span class="chip over">Missed the ${fmt0(target)} target by ${fmt0(left)}</span>`);
+  }
+  if (p.current) chips.push(`<span class="chip plain">${p.days - p.elapsed + 1} day${p.days - p.elapsed === 0 ? "" : "s"} left in ${esc(p.short)}</span>`);
+  const out = m.withdrawals ? ` and took out <b class="num">QAR ${fmt0(m.withdrawals)}</b>` : "";
+  const line = p.current
+    ? (m.count ? `This month you put in <b class="num">QAR ${fmt0(m.deposits)}</b>${out}.` : `Nothing saved yet this month. Tap <b>+ Save</b> when you move money in.`)
+    : `In ${esc(p.label)} you put in <b class="num">QAR ${fmt0(m.deposits)}</b>${out}.`;
+  return `<div class="hero"><div class="label">${p.current ? "Total saved" : "Net saved that month"}</div>
+      <div class="big ${!p.current && m.net < 0 ? "neg" : ""}"><small>QAR</small>${p.current ? fmt0(total) : signed(m.net)}</div>
+      <p>${line}</p><div class="chips">${chips.join("")}</div></div>
+    <div class="stats">
+      <div class="stat"><span class="label k"><i class="sw saved"></i>${p.current ? "This month" : "That month"}</span><span class="v">${signed(m.net)}</span></div>
+      <div class="stat"><span class="label k">Monthly average</span><span class="v">${hist.months ? fmt0(hist.avg) : "–"}${hist.months ? `<span class="muted" style="font-size:12px"> ${hist.months} mo</span>` : ""}</span></div>
+      <div class="stat"><span class="label k">Target</span><span class="v">${target ? fmt0(target) : "–"}</span></div>
+      <div class="stat"><span class="label k">On target</span><span class="v">${target ? `${streak}<span class="muted" style="font-size:12px"> month${streak === 1 ? "" : "s"} running</span>` : "–"}</span></div>
+    </div>`;
+}
+function savingsForecastHtml(txs) {
+  const st = S.settings;
+  const base = C.savingsForecast(st, txs, S.horizon);
+  if (!base.rate && !base.start) {
+    return `<div class="empty"><b>Nothing to project yet</b>Set a monthly savings target, or log what you've already saved, and the forecast appears here.<br><button class="btn primary" style="margin:12px auto 0;display:block" data-act="goals">Set a target</button></div>`;
+  }
+  const sc = scenario();
+  const alt = sc ? C.savingsForecast(st, txs, S.horizon, sc) : null;
+  const end = base.rows[base.rows.length - 1];
+  const opts = `<option value="">No what-if</option>` + st.scenarios.map(x => `<option value="${esc(x.id)}" ${x.id === S.scenarioId ? "selected" : ""}>${esc(x.name)}</option>`).join("");
+  const diff = alt ? alt.rows[alt.rows.length - 1].balance - end.balance : null;
+  const basis = base.basis === "history"
+    ? `your average over the last ${base.histMonths} month${base.histMonths === 1 ? "" : "s"}`
+    : (Number(st.savingsTarget) ? "your monthly target, until you have a full month of history" : "your goals' monthly amounts, until you have a full month of history");
+  return `<div class="ctrls">
+      <div class="pill" role="group" aria-label="Forecast length">${[12, 24].map(h => `<button data-hz="${h}" aria-pressed="${S.horizon === h}">${h} months</button>`).join("")}</div>
+      ${st.scenarios.length ? `<select id="scSel" aria-label="What-if scenario">${opts}</select>` : `<button class="linkbtn" data-act="scenarios">+ Add a what-if</button>`}
+    </div>
+    <div class="legend" style="margin-bottom:6px"><span><i class="ln saved"></i>Forecast</span>${sc ? `<span><i class="ln alt"></i>${esc(sc.name)}</span>` : ""}</div>
+    <div class="chart" id="fcChart"></div>
+    <div class="fsum">
+      <div><span class="label">Saved now</span><span class="v">${fmt0(base.start)}</span></div>
+      <div><span class="label">By ${C.monthLabel(end.key)}</span><span class="v">${fmt0(end.balance)}</span></div>
+      <div><span class="label">Per month</span><span class="v">${signed(base.rate)}</span></div>
+      ${alt ? `<div><span class="label">${esc(sc.name)}</span><span class="v ${diff >= 0 ? "up" : "down"}">${diff >= 0 ? "+" : "−"}${fmt0(Math.abs(diff))}</span></div>` : ""}
+    </div>
+    <p class="note" style="margin-top:10px">Projects QAR ${fmt0(base.rate)} a month, based on ${basis}. Only money you log as saved counts.</p>`;
+}
+function savedTable(txs) {
+  const d = savedSeries(txs, 12);
+  return `<details class="tbl"><summary>Show as table</summary><div class="tscroll"><table><thead><tr><th>Period</th><th>Put in</th><th>Took out</th><th>Net</th></tr></thead><tbody>${d.map(r => `<tr><td>${esc(r.p.label)}</td><td>${fmt0(r.deposits)}</td><td>${fmt0(r.withdrawals)}</td><td>${signed(r.net)}</td></tr>`).join("")}</tbody></table></div></details>`;
 }
 
 function heroHtml(p, t, b) {
@@ -201,12 +306,14 @@ function breakdownHtml(t) {
     <span class="bar" style="grid-column:1/-1"><i style="width:${(r.value / top) * 100}%"></i></span></div>`).join("")}</div>`;
 }
 
-function txHtml(p, txs) {
-  let list = txs.filter(x => C.inPeriod(p, x));
+function txHtml(p, txs, kinds = null) {
+  let list = txs.filter(x => C.inPeriod(p, x) && (!kinds || kinds.includes(x.kind)));
   if (S.selCat) list = list.filter(x => x.cat === S.selCat);
   list.sort((a, b) => b.date.localeCompare(a.date) || String(b.created || "").localeCompare(String(a.created || "")));
   const filter = S.selCat ? `<div class="filter"><span class="chip plain">${esc(catName("expense", S.selCat))}</span><button class="linkbtn" data-act="clearcat">Show all categories</button></div>` : "";
-  if (!list.length) return filter + `<div class="empty"><b>${S.selCat ? "Nothing in this category" : "No entries this period"}</b>${p.current ? "Tap + Add after each purchase. Ten seconds each keeps this honest." : "Nothing was logged in this period."}</div>`;
+  if (!list.length) return filter + (kinds
+    ? `<div class="empty"><b>No savings logged this period</b>${p.current ? "Tap + Save each time you move money into savings, and pick the goal it's for." : "Nothing was saved in this period."}</div>`
+    : `<div class="empty"><b>${S.selCat ? "Nothing in this category" : "No entries this period"}</b>${p.current ? "Tap + Add after each purchase. Ten seconds each keeps this honest." : "Nothing was logged in this period."}</div>`);
   const shown = S.showAll ? list : list.slice(0, 25);
   const groups = [];
   for (const x of shown) { const g = groups[groups.length - 1]; if (g && g.date === x.date) g.items.push(x); else groups.push({ date: x.date, items: [x] }); }
@@ -217,11 +324,11 @@ function txHtml(p, txs) {
       const name = catName(x.kind, x.cat);
       const init = (name.match(/[A-Za-z]/) || ["?"])[0].toUpperCase();
       const orig = x.cur && x.cur !== "QAR" ? `<span class="o">${esc(x.cur)} ${fmt2(Number(x.amount) || 0)}</span>` : "";
-      const sign = x.kind === "income" ? "+" : x.kind === "saving" ? "→ " : "";
+      const sign = x.kind === "income" ? "+" : x.kind === "withdrawal" ? "−" : x.kind === "saving" ? (kinds ? "+" : "→ ") : "";
       const sub = [x.note ? name : "", x.account].filter(Boolean).join(" · ");
       return `<button class="tx" data-tx="${esc(x.id)}"><span class="k ${esc(x.kind)}" aria-hidden="true">${init}</span>
         <span class="t"><div>${esc(x.note || name)}</div><div class="s">${esc(sub)}</div></span>
-        <span class="m ${x.kind === "income" ? "income" : ""}">${sign}${fmt2(Number(x.qar) || 0)}${orig}</span></button>`;
+        <span class="m ${x.kind === "income" ? "income" : kinds ? esc(x.kind) : ""}">${sign}${fmt2(Number(x.qar) || 0)}${orig}</span></button>`;
     }).join("")}</div>`;
   }).join("");
   const more = list.length > 25 ? `<button class="linkbtn" style="margin-top:10px" data-act="more">${S.showAll ? "Show fewer" : `Show all ${list.length}`}</button>` : "";
@@ -233,15 +340,16 @@ function goalsHtml(txs) {
   if (!gs.length) return `<div class="empty"><b>No goals yet</b>Add a goal and log Saving entries against it.</div>`;
   const committed = gs.reduce((a, g) => a + (Number(g.monthly) || 0), 0);
   const L = C.landing(S.settings, txs);
-  const warn = committed > 0 && S.settings.recurring.length && committed > L.landing
+  const warn = !savingsMode() && committed > 0 && S.settings.recurring.length && committed > L.landing
     ? `<p class="note st-warn" style="margin-top:12px">Monthly contributions (QAR ${fmt0(committed)}) are more than this period's forecast to save (QAR ${fmt0(L.landing)}).</p>` : "";
   return `<div class="goals">${gs.map(g => {
-    const r = C.goalForecast(g, txs);
+    const gr = C.goalRate(g, txs, S.settings.cycleStart);
+    const r = C.goalForecast({ ...g, monthly: gr.rate }, txs);
     let sub, f = "";
     if (!r.target) sub = "No target set. Add one in Edit goals.";
     else if (r.done) sub = "Target reached.";
     else {
-      sub = `QAR ${fmt0(r.remaining)} to go` + (r.monthly ? ` at QAR ${fmt0(r.monthly)} a month.` : ". Set a monthly amount to get a date.");
+      sub = `QAR ${fmt0(r.remaining)} to go` + (r.monthly ? ` at QAR ${fmt0(r.monthly)} a month${gr.basis === "history" ? " (your recent average)" : ""}.` : ". Save into it or set a monthly amount to get a date.");
       if (r.reachKey) {
         const when = C.monthLabel(r.reachKey);
         f = r.late == null ? `<span class="gf">Reached around ${when}</span>`
@@ -264,11 +372,14 @@ new ResizeObserver(() => { clearTimeout(rT); rT = setTimeout(() => { if (S.setti
 
 /* ---------- add / edit entry ---------- */
 const TX = { kind: "expense", cat: null, editing: null };
+const SEG = { savings: [["saving", "Put in"], ["withdrawal", "Took out"]], spending: [["expense", "Expense"], ["income", "Income"], ["saving", "Saving"]] };
 function openTx(existing) {
   TX.editing = existing || null;
-  TX.kind = existing?.kind || "expense";
+  const mode = (existing ? (existing.kind === "withdrawal" || (isPot(existing.kind) && savingsMode())) : savingsMode()) ? "savings" : "spending";
+  document.querySelector(".seg").innerHTML = SEG[mode].map(([k, l]) => `<button type="button" data-kind="${k}" aria-pressed="false">${l}</button>`).join("");
+  TX.kind = existing?.kind || (mode === "savings" ? "saving" : "expense");
   TX.cat = existing?.cat || null;
-  $("#txTitle").textContent = existing ? "Edit entry" : "Add entry";
+  $("#txTitle").textContent = existing ? "Edit entry" : mode === "savings" ? "Log a saving" : "Add entry";
   $("#txCur").innerHTML = Object.keys(S.settings.fx || { QAR: 1 }).map(c => `<option>${esc(c)}</option>`).join("");
   $("#txCur").value = existing?.cur || "QAR";
   $("#txAcc").innerHTML = (S.settings.accounts || []).map(a => `<option>${esc(a)}</option>`).join("");
@@ -285,10 +396,11 @@ function openTx(existing) {
 const amountIn = () => parseFloat($("#txAmt").value.replace(/,/g, ""));
 function syncTx() {
   document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.kind === TX.kind)));
-  const list = TX.kind === "saving" ? goals() : cats(TX.kind);
+  const list = isPot(TX.kind) ? goals() : cats(TX.kind);
   if (TX.cat && !list.some(x => x.id === TX.cat)) TX.cat = null;
-  $("#catLbl").textContent = TX.kind === "saving" ? "Goal" : TX.kind === "income" ? "Income type" : "Category";
-  $("#accLbl").textContent = TX.kind === "income" ? "Paid into" : TX.kind === "saving" ? "Moved from" : "Paid from";
+  $("#catLbl").textContent = isPot(TX.kind) ? (TX.kind === "withdrawal" ? "Taken from goal" : "Goal") : TX.kind === "income" ? "Income type" : "Category";
+  $("#txNote").placeholder = isPot(TX.kind) ? (TX.kind === "withdrawal" ? "Optional, e.g. Car repair" : "Optional, e.g. Payday transfer") : "Optional, e.g. Lulu weekly shop";
+  $("#accLbl").textContent = TX.kind === "income" ? "Paid into" : TX.kind === "saving" ? "Moved from" : TX.kind === "withdrawal" ? "Moved to" : "Paid from";
   $("#txCats").innerHTML = list.length
     ? list.map(x => `<button type="button" data-c="${esc(x.id)}" aria-pressed="${x.id === TX.cat}">${esc(x.name)}</button>`).join("")
     : `<span class="note">Nothing set up yet. Add some in Settings.</span>`;
@@ -318,7 +430,7 @@ $("#txForm").addEventListener("submit", async e => {
   try {
     await store.putTx(rec);
     $("#txDlg").close();
-    toast(ed ? "Entry updated" : `Saved QAR ${fmt2(rec.qar)}, ${catName(rec.kind, rec.cat)}`);
+    toast(ed ? "Entry updated" : rec.kind === "withdrawal" ? `Took out QAR ${fmt2(rec.qar)} from ${catName(rec.kind, rec.cat)}` : `Logged QAR ${fmt2(rec.qar)}, ${catName(rec.kind, rec.cat)}`);
     await reloadTx();
   } catch (err) { console.error(err); $("#txSave").disabled = false; toast("Couldn't save on this device. Check storage space."); }
 });
@@ -334,11 +446,14 @@ $("#txDel").onclick = async () => {
 let D = null, tab = "budgets";
 const num = v => parseFloat(String(v).replace(/,/g, "")) || 0;
 function openSettings(which) {
-  D = structuredClone(S.settings); tab = which || "plan";
+  D = structuredClone(S.settings); tab = which || (savingsMode() ? "goals" : "plan");
   $("#setNote").textContent = ""; renderSet(); $("#setDlg").showModal();
 }
 function renderSet() {
-  document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
+  document.querySelectorAll(".tabs button").forEach(b => {
+    b.setAttribute("aria-selected", String(b.dataset.tab === tab));
+    b.hidden = !D.showSpending && ["plan", "budgets", "income"].includes(b.dataset.tab);
+  });
   $("#setSave").hidden = tab === "data";
   const body = $("#setBody");
   if (tab === "budgets" || tab === "income") {
@@ -382,8 +497,11 @@ function renderSet() {
         <button class="add" data-additem="${esc(sc.id)}">+ Add a change</button></div>`).join("")}
       <button class="add" data-addsc="1">+ New what-if</button>`;
   } else if (tab === "goals") {
-    body.innerHTML = `<p class="note">Log Saving entries against a goal to fill it. "Already saved" covers money you had before you started logging.</p>
-      ${D.goals.map(g => `<div class="gblock"><div class="erow"><input data-gid="${esc(g.id)}" data-f="name" value="${esc(g.name)}" aria-label="Goal name"><span></span><button class="rm" data-rmg="${esc(g.id)}" aria-label="Remove ${esc(g.name)}">×</button></div>
+    body.innerHTML = `${!D.showSpending ? `<label class="field"><span class="label">Monthly savings target (QAR)</span><input class="num" inputmode="decimal" id="savTarget" value="${D.savingsTarget || ""}" placeholder="0"></label>
+      <label class="field"><span class="label">Month starts on day</span><select id="cycStart">${Array.from({ length: 28 }, (_, i) => `<option ${i + 1 === Number(D.cycleStart || 1) ? "selected" : ""}>${i + 1}</option>`).join("")}</select></label>
+      <p class="note">Set the start day to your payday to count savings salary to salary.</p>` : ""}
+      <p class="note">Log what you put into each goal to fill it. "Already saved" covers money you had before you started logging.</p>
+      ${D.goals.map(g => `<div class="gblock"><div class="erow"><input data-gid="${esc(g.id)}" data-f="name" value="${esc(g.name)}" aria-label="Goal name" style="grid-column:1/3"><button class="rm" data-rmg="${esc(g.id)}" aria-label="Remove ${esc(g.name)}">×</button></div>
         <div class="erow g2"><label class="field"><span class="label">Target (QAR)</span><input class="num" inputmode="decimal" data-gid="${esc(g.id)}" data-f="target" value="${g.target || ""}" placeholder="0"></label>
         <label class="field"><span class="label">Already saved</span><input class="num" inputmode="decimal" data-gid="${esc(g.id)}" data-f="start" value="${g.start || ""}" placeholder="0"></label>
         <label class="field"><span class="label">Monthly contribution</span><input class="num" inputmode="decimal" data-gid="${esc(g.id)}" data-f="monthly" value="${g.monthly || ""}" placeholder="0"></label>
@@ -397,9 +515,10 @@ function renderSet() {
         ${k === "QAR" ? "<span></span>" : `<button class="rm" data-rmfx="${esc(k)}" aria-label="Remove ${esc(k)}">×</button>`}</div>`).join("")}
       <div class="erow"><input id="newCur" maxlength="3" placeholder="Code, e.g. SAR" aria-label="New currency code"><input id="newRate" class="num" inputmode="decimal" placeholder="QAR per unit" aria-label="Rate"><button class="rm" id="addFx" aria-label="Add currency" style="color:var(--accent)">+</button></div>
       <p class="note">${esc(D.fxNote || "")}</p>
-      <label class="field"><span class="label">Budget period starts on day</span><select id="cycStart">${Array.from({ length: 28 }, (_, i) => `<option ${i + 1 === Number(D.cycleStart || 1) ? "selected" : ""}>${i + 1}</option>`).join("")}</select></label>
+      <label class="field"><span class="label">Month starts on day</span><select id="cycStart">${Array.from({ length: 28 }, (_, i) => `<option ${i + 1 === Number(D.cycleStart || 1) ? "selected" : ""}>${i + 1}</option>`).join("")}</select></label>
       <p class="note">Set this to your payday if you budget from salary to salary.</p>
       <label class="field"><span class="label">Accounts (comma separated)</span><input id="accts" value="${esc((D.accounts || []).join(", "))}"></label>
+      <label class="field" style="flex-direction:row;align-items:center;gap:10px"><input type="checkbox" id="showSpending" ${D.showSpending ? "checked" : ""} style="width:auto"><span>Show spending tools (budgets, bills and expenses)</span></label>
       <label class="field"><span class="label">Theme</span><select id="theme"><option value="">Match device</option><option value="light" ${D.theme === "light" ? "selected" : ""}>Light</option><option value="dark" ${D.theme === "dark" ? "selected" : ""}>Dark</option></select></label>`;
   } else {
     const n = liveTx().length;
@@ -439,6 +558,7 @@ $("#setBody").addEventListener("change", async e => {
   const t = e.target;
   if (t.id === "cycStart") D.cycleStart = Number(t.value);
   if (t.id === "theme") D.theme = t.value;
+  if (t.id === "showSpending") { D.showSpending = t.checked; renderSet(); }
   if (t.id === "importJson" && t.files?.[0]) await importBackup(t.files[0]);
 });
 $("#setBody").addEventListener("click", e => {

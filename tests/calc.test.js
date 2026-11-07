@@ -176,3 +176,48 @@ test("pace ignores planned bills once a plan exists", () => {
   const dd = dayToDay(plan, txs, period(0, 1, D(2026, 11, 7)));
   assert.equal(dd.planned, true); assert.equal(dd.spent, 200); assert.equal(Math.round(dd.budget), 344);
 });
+
+import { savedIn, savingsHistory, savingsForecast, targetStreak, goalRate, plannedMonthly } from "../js/calc.js";
+
+const sv = [
+  { id: "s1", date: "2026-08-20", kind: "saving", cat: "emergency", qar: 1000 },
+  { id: "s2", date: "2026-09-05", kind: "saving", cat: "emergency", qar: 2000 },
+  { id: "s3", date: "2026-09-25", kind: "withdrawal", cat: "emergency", qar: 500 },
+  { id: "s4", date: "2026-10-03", kind: "saving", cat: "trip", qar: 1500 },
+  { id: "s5", date: "2026-10-28", kind: "saving", cat: "emergency", qar: 1500 },
+  { id: "s6", date: "2026-11-02", kind: "saving", cat: "emergency", qar: 800 }
+];
+const svSettings = { cycleStart: 1, savingsTarget: 2500, goals: [{ id: "emergency", target: 20000, start: 0, monthly: 0 }, { id: "trip", target: 6000, start: 0, monthly: 1000 }] };
+
+test("withdrawals reduce the period and the goal", () => {
+  const sep = savedIn(sv, period(-2, 1, D(2026, 11, 7)));
+  assert.equal(sep.deposits, 2000); assert.equal(sep.withdrawals, 500); assert.equal(sep.net, 1500);
+  assert.equal(goalProgress(svSettings.goals[0], sv).saved, 4800);
+});
+
+test("savings history averages complete months since the first entry", () => {
+  const h = savingsHistory(sv, 1, D(2026, 11, 7));
+  assert.equal(h.months, 3); assert.deepEqual(h.vals, [3000, 1500, 1000]);
+  assert.equal(Math.round(h.avg), 1833);
+  const short = savingsHistory([{ id: "a", date: "2026-10-15", kind: "saving", cat: "x", qar: 900 }], 1, D(2026, 11, 7));
+  assert.equal(short.months, 1); assert.equal(short.avg, 900);
+});
+
+test("savings forecast uses history, else the plan", () => {
+  const f = savingsForecast(svSettings, sv, 12, null, D(2026, 11, 7));
+  assert.equal(f.basis, "history"); assert.equal(Math.round(f.start), 6300);
+  assert.equal(Math.round(f.rows[11].balance), 6300 + 22000);
+  const none = savingsForecast(svSettings, [], 12, null, D(2026, 11, 7));
+  assert.equal(none.basis, "plan"); assert.equal(none.rate, 2500);
+  assert.equal(plannedMonthly({ goals: [{ monthly: 500 }, { monthly: 300 }] }), 800);
+  const sc = { items: [{ type: "monthly", amount: 500, start: "2027-01" }] };
+  const alt = savingsForecast(svSettings, sv, 12, sc, D(2026, 11, 7));
+  assert.equal(Math.round(alt.rows[11].balance - f.rows[11].balance), 500 * 11);
+});
+
+test("target streak and goal rate", () => {
+  assert.equal(targetStreak(sv, svSettings, D(2026, 11, 7)), 1);
+  assert.equal(goalRate(svSettings.goals[1], sv, 1, D(2026, 11, 7)).basis, "set");
+  const r = goalRate(svSettings.goals[0], sv, 1, D(2026, 11, 7));
+  assert.equal(r.basis, "history"); assert.equal(Math.round(r.rate), 1333);
+});

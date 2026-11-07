@@ -101,7 +101,7 @@ export function drawTrend(el, data) {
 }
 
 /** Projected total savings by month: the plan, plus an optional what-if line. */
-export function drawForecast(el, base, alt, altName) {
+export function drawForecast(el, base, alt, altName, baseName = "Plan") {
   if (!el) return;
   const W = Math.max(280, el.clientWidth), H = 230, L = 48, R = 14, T = 16, B = 26;
   const pts = [{ label: "Now", v: base.start }].concat(base.rows.map(r => ({ label: MON[+r.key.slice(5) - 1], key: r.key, v: r.balance })));
@@ -127,7 +127,7 @@ export function drawForecast(el, base, alt, altName) {
   const by = y(pts[n].v), ay = apts ? y(apts[n].v) : null;
   let bLab = by - 10, aLab = ay != null ? ay - 10 : null;
   if (aLab != null && Math.abs(aLab - bLab) < 14) { if (ay < by) { aLab = bLab - 14; } else { aLab = bLab + 26; } }
-  s += lab(pts[n].v, Math.max(T + 10, bLab), "", "Plan");
+  s += lab(pts[n].v, Math.max(T + 10, bLab), "", esc(baseName));
   if (apts) s += lab(apts[n].v, Math.min(H - B - 4, Math.max(T + 10, aLab)), "alt", esc(altName || "What-if"));
   s += `<line class="xhair" x1="0" x2="0" y1="${T}" y2="${H - B}" visibility="hidden"/>`;
   s += `<rect class="hit" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"/></svg><div class="tip" hidden></div>`;
@@ -139,7 +139,7 @@ export function drawForecast(el, base, alt, altName) {
     xh.setAttribute("x1", x(i)); xh.setAttribute("x2", x(i)); xh.setAttribute("visibility", "visible");
     const row = i ? base.rows[i - 1] : null;
     const name = i ? `${MON[+row.key.slice(5) - 1]} ${row.key.slice(0, 4)}` : "Now";
-    tip.innerHTML = `<div><b>${name}</b></div><div class="row"><i class="sw saved"></i>Plan <b class="num">QAR ${fmt0(pts[i].v)}</b></div>`
+    tip.innerHTML = `<div><b>${name}</b></div><div class="row"><i class="sw saved"></i>${esc(baseName)} <b class="num">QAR ${fmt0(pts[i].v)}</b></div>`
       + (apts ? `<div class="row"><i class="sw alt"></i>${esc(altName || "What-if")} <b class="num">QAR ${fmt0(apts[i].v)}</b></div>` : "")
       + (row ? `<div class="row">Month adds <span class="num">${signed(row.surplus)}</span></div>` : "");
     placeTip(tip, x(i), W, T);
@@ -147,4 +147,45 @@ export function drawForecast(el, base, alt, altName) {
   hit.addEventListener("pointermove", move);
   hit.addEventListener("pointerdown", move);
   hit.addEventListener("pointerleave", () => { tip.hidden = true; xh.setAttribute("visibility", "hidden"); });
+}
+
+/** Net saved per period (deposits minus withdrawals), with the monthly target as a dashed line. */
+export function drawSavedBars(el, data, target) {
+  if (!el) return;
+  const W = Math.max(280, el.clientWidth), H = 200, L = 44, R = 8, T = 14, B = 26;
+  const vals = data.map(d => d.net);
+  const hi = niceMax(Math.max(1, target || 0, ...vals) * 1.08);
+  const minV = Math.min(0, ...vals);
+  const lo = minV < 0 ? -niceMax(-minV * 1.08) : 0;
+  const y = v => T + (H - T - B) * (1 - (v - lo) / (hi - lo));
+  const gw = (W - L - R) / data.length, bw = Math.max(6, Math.min(26, gw * 0.55));
+  const ticks = lo < 0 ? [lo, 0, hi] : [0, hi / 2, hi];
+  let s = `<svg width="${W}" height="${H}" role="img" aria-label="Net amount saved each period">`;
+  s += `<g class="grid">${ticks.map(v => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/>`).join("")}</g>`;
+  s += `<g class="axis">${ticks.map(v => `<text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${v < 0 ? "−" + kfmt(-v) : kfmt(v)}</text>`).join("")}`;
+  s += data.map((d, i) => `<text x="${L + gw * i + gw / 2}" y="${H - 6}" text-anchor="middle" ${d.p.current ? 'style="fill:var(--ink);font-weight:500"' : ""}>${esc(d.p.short)}</text>`).join("") + `</g>`;
+  data.forEach((d, i) => {
+    const v = d.net; if (!v) return;
+    const x0 = L + gw * i + (gw - bw) / 2, top = y(Math.max(0, v)), bot = y(Math.min(0, v)), r = Math.min(4, bw / 2, (bot - top) / 2);
+    const cls = v < 0 ? "f-neg" : d.p.current ? "f-saved cur" : "f-saved";
+    s += v >= 0
+      ? `<path class="${cls}" d="M${x0},${bot} V${top + r} Q${x0},${top} ${x0 + r},${top} H${x0 + bw - r} Q${x0 + bw},${top} ${x0 + bw},${top + r} V${bot} Z"/>`
+      : `<path class="${cls}" d="M${x0},${top} V${bot - r} Q${x0},${bot} ${x0 + r},${bot} H${x0 + bw - r} Q${x0 + bw},${bot} ${x0 + bw},${bot - r} V${top} Z"/>`;
+  });
+  if (target) s += `<line class="l-target" x1="${L}" x2="${W - R}" y1="${y(target)}" y2="${y(target)}"/><text class="lbl" x="${L + 6}" y="${y(target) - 6}" text-anchor="start" style="fill:var(--ink-3);font-weight:500">Target ${fmt0(target)}</text>`;
+  s += data.map((_, i) => `<rect data-i="${i}" x="${L + gw * i}" y="${T}" width="${gw}" height="${H - T - B}" fill="transparent"/>`).join("");
+  s += `</svg><div class="tip" hidden></div>`;
+  el.innerHTML = s;
+  const tip = el.querySelector(".tip");
+  el.querySelectorAll("rect[data-i]").forEach(r => {
+    const show = () => {
+      const d = data[+r.dataset.i];
+      tip.innerHTML = `<div><b>${esc(d.p.label)}</b></div><div class="row">Put in <b class="num">${fmt0(d.deposits)}</b></div>`
+        + (d.withdrawals ? `<div class="row">Took out <span class="num">${fmt0(d.withdrawals)}</span></div>` : "")
+        + `<div class="row">Net <b class="num">${signed(d.net)}</b></div>`;
+      placeTip(tip, L + gw * +r.dataset.i + gw / 2, W, T);
+    };
+    r.addEventListener("pointerenter", show); r.addEventListener("pointerdown", show);
+    r.addEventListener("pointerleave", () => { tip.hidden = true; });
+  });
 }

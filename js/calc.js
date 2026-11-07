@@ -49,6 +49,7 @@ export function totals(txs, p) {
     t.count++;
     if (x.kind === "income") t.income += v;
     else if (x.kind === "saving") t.saved += v;
+    else if (x.kind === "withdrawal") { t.saved -= v; t.withdrawn = (t.withdrawn || 0) + v; }
     else { t.spent += v; t.byCat[x.cat] = (t.byCat[x.cat] || 0) + v; }
   }
   t.net = t.income - t.spent - t.saved;
@@ -115,7 +116,11 @@ export function trend(txs, offset, startDay, n = 6, today = new Date()) {
 
 export function goalProgress(goal, txs, today = new Date()) {
   let saved = Number(goal.start) || 0;
-  for (const x of txs) if (!x.deleted && x.kind === "saving" && x.cat === goal.id) saved += Number(x.qar) || 0;
+  for (const x of txs) {
+    if (x.deleted || x.cat !== goal.id) continue;
+    if (x.kind === "saving") saved += Number(x.qar) || 0;
+    else if (x.kind === "withdrawal") saved -= Number(x.qar) || 0;
+  }
   const target = Number(goal.target) || 0;
   const pct = target ? Math.min(1, saved / target) : null;
   let monthsLeft = null, perMonth = null;
@@ -314,4 +319,84 @@ export function dayToDay(settings, txs, p) {
   return hasPlan
     ? { planned: true, spent: variableSpent(txs, p), budget: budgetVariable(settings) }
     : { planned: false, spent: t.spent, budget: budgetTotal(settings.categories || []) };
+}
+
+
+/* ---------------- savings-first view ---------------- */
+
+/** Money put into savings in a period, minus money taken out. */
+export function savedIn(txs, p, goalId = null) {
+  let deposits = 0, withdrawals = 0, count = 0;
+  for (const x of txs) {
+    if (x.deleted || !inPeriod(p, x) || (goalId && x.cat !== goalId)) continue;
+    if (x.kind === "saving") { deposits += Number(x.qar) || 0; count++; }
+    else if (x.kind === "withdrawal") { withdrawals += Number(x.qar) || 0; count++; }
+  }
+  return { deposits, withdrawals, net: deposits - withdrawals, count };
+}
+
+/**
+ * Average net saving over up to `n` previous complete periods, starting from the first period
+ * that has any savings entry (months before you started logging don't drag the average down).
+ */
+export function savingsHistory(txs, startDay, today = new Date(), n = 3, goalId = null) {
+  const firstDate = txs.filter(x => !x.deleted && (x.kind === "saving" || x.kind === "withdrawal") && (!goalId || x.cat === goalId))
+    .reduce((m, x) => (!m || x.date < m ? x.date : m), null);
+  const vals = [];
+  if (firstDate) {
+    for (let k = 1; k <= n; k++) {
+      const p = period(-k, startDay, today);
+      if (p.e <= firstDate) break;
+      vals.push(savedIn(txs, p, goalId).net);
+    }
+  }
+  return { months: vals.length, avg: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0, vals };
+}
+
+/** Planned monthly saving when there's no history yet: the target, else the goals' monthly amounts. */
+export function plannedMonthly(settings) {
+  const target = Number(settings.savingsTarget) || 0;
+  if (target) return target;
+  return (settings.goals || []).reduce((a, g) => a + (Number(g.monthly) || 0), 0);
+}
+
+/**
+ * Total savings projected month by month from what you actually put away.
+ * Monthly rate: your average over the last 3 complete months; until you have one, your plan.
+ * What-if items add to or subtract from that rate.
+ */
+export function savingsForecast(settings, txs, horizon = 12, scenario = null, today = new Date()) {
+  const hist = savingsHistory(txs, settings.cycleStart, today);
+  const rate = hist.months ? hist.avg : plannedMonthly(settings);
+  const start = totalSaved(settings, txs, today);
+  const rows = [];
+  let bal = start;
+  for (let k = 1; k <= horizon; k++) {
+    const p = period(k, settings.cycleStart, today);
+    const key = monthKey(p);
+    const adj = scenarioAdj(scenario, key);
+    const surplus = rate + adj;
+    bal += surplus;
+    rows.push({ key, p, rate, adj, surplus, balance: bal });
+  }
+  return { start, rows, rate, basis: hist.months ? "history" : "plan", histMonths: hist.months };
+}
+
+/** Months in a row, ending last period, where net saving met the target. */
+export function targetStreak(txs, settings, today = new Date()) {
+  const target = Number(settings.savingsTarget) || 0;
+  if (!target) return 0;
+  let n = 0;
+  for (let k = 1; k <= 60; k++) {
+    const p = period(-k, settings.cycleStart, today);
+    if (savedIn(txs, p).net >= target) n++; else break;
+  }
+  return n;
+}
+
+/** Monthly rate for a goal: its set monthly amount, else its own recent average. */
+export function goalRate(goal, txs, startDay, today = new Date()) {
+  if (Number(goal.monthly) > 0) return { rate: Number(goal.monthly), basis: "set" };
+  const h = savingsHistory(txs, startDay, today, 3, goal.id);
+  return { rate: h.months ? Math.max(0, h.avg) : 0, basis: h.months ? "history" : "none" };
 }

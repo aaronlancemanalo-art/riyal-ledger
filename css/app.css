@@ -181,7 +181,7 @@ dialog::backdrop{background:rgba(10,14,13,.55)}
 .db{padding:6px 20px 16px;overflow-y:auto;display:flex;flex-direction:column;gap:16px}
 .df{padding:12px 20px calc(16px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);display:flex;gap:10px;align-items:center}
 .x{border:0;background:var(--sunken);width:36px;height:36px;border-radius:50%;font-size:18px;color:var(--ink-2)}
-.seg{display:grid;grid-template-columns:repeat(3,1fr);background:var(--sunken);border-radius:12px;padding:4px;gap:4px}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--sunken);border-radius:12px;padding:4px;gap:4px}
 .seg button{border:0;background:none;border-radius:9px;padding:9px;font-weight:600;color:var(--ink-2)}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .amt{display:flex;align-items:center;gap:8px;border-bottom:2px solid var(--line);padding-bottom:6px}
@@ -282,3 +282,10 @@ dialog::backdrop{background:rgba(10,14,13,.55)}
 @media (max-width:340px){.brand{font-size:0;gap:0}}
 .brand{white-space:nowrap}
 @media (max-width:420px){.top{gap:8px}.brand{font-size:16px;gap:6px}.brand i{width:11px;height:18px}.cyc span{min-width:0;padding:0 2px;font-size:12.5px}.cyc button{width:28px;height:32px}.iconbtn.gear{width:38px;height:38px}}
+.f-neg{fill:var(--over)}
+.f-saved.cur{opacity:.75}
+.l-target{stroke:var(--ink-3);stroke-width:1.5;stroke-dasharray:4 4}
+.tx .k.withdrawal{background:var(--over-soft);color:var(--over)}
+.tx .m.withdrawal{color:var(--over)}
+.tx .m.saving{color:var(--s-saved)}
+.potchip{display:inline-flex;align-items:center;gap:6px}
