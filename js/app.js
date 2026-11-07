@@ -11,7 +11,7 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const { fmt0, fmt2, signed, MON } = C;
 
 // Bump on every release of the web app (also bump VERSION in sw.js).
-const APP_VERSION = "3.1";
+const APP_VERSION = "3.2";
 const APP_DATE = "7 Nov 2026";
 /** Where this copy runs: the phone app reports its build number; the website says so. */
 function whereLabel() {
@@ -545,7 +545,8 @@ function renderSet() {
       </div>
       <p class="note">Importing merges a backup into this device: new entries are added, edited ones take the newest version, deletions carry over. Use it to move entries between your phone and laptop.</p>
       <p class="note">${n} entr${n === 1 ? "y" : "ies"} on this device.</p>
-      <p class="note">${esc(versionLine())}. Each device keeps its own entries; use backups to move them.</p>`;
+      <p class="note">${esc(versionLine())}. Each device keeps its own entries; use backups to move them.</p>
+      ${window.HoldfastLedger?.checkForUpdates ? `<button class="btn ghost" id="checkUpdates">Check for updates</button>` : ""}`;
   }
 }
 $("#setBody").addEventListener("input", e => {
@@ -600,6 +601,7 @@ $("#setBody").addEventListener("click", e => {
     const code = $("#newCur").value.trim().toUpperCase(), v = parseFloat($("#newRate").value);
     if (/^[A-Z]{3}$/.test(code) && v > 0) { D.fx[code] = v; renderSet(); } else $("#setNote").textContent = "Use a 3-letter code and a rate above 0.";
   }
+  else if (t.id === "checkUpdates") { try { window.HoldfastLedger.checkForUpdates(); } catch {} }
   else if (t.id === "exportCsv") download(`riyal-ledger-${C.iso(new Date())}.csv`, C.toCsv(S.tx, catName), "text/csv");
   else if (t.id === "exportJson") download(`riyal-ledger-backup-${C.iso(new Date())}.json`,
     JSON.stringify({ app: "riyal-ledger", version: 1, exported: new Date().toISOString(), settings: S.settings, tx: S.tx }), "application/json");
