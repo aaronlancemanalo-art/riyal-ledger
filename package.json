@@ -1,0 +1,11 @@
+{
+  "name": "riyal-ledger",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal QAR budget app that keeps data on your device.",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "serve": "python3 -m http.server 8080"
+  }
+}

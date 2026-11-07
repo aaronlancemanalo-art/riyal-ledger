@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Riyal Ledger</title>
+<meta name="description" content="Personal QAR budget. Your data stays on this device.">
+<meta name="theme-color" content="#F3F5F4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F1312" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preload" href="fonts/bricolage-grotesque-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/instrument-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><i aria-hidden="true"></i>Riyal Ledger</div>
+    <div class="cyc" aria-label="Budget period">
+      <button id="prev" aria-label="Previous period">‹</button>
+      <span id="cycLabel">This month</span>
+      <button id="next" aria-label="Next period">›</button>
+    </div>
+    <button class="iconbtn gear" id="openSettings" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7.4 7.4 0 0 0 1.7-1l2.4 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg></button>
+  </header>
+  <main id="app">
+    <div class="state"><h1>Opening your ledger…</h1><p>Loading from this device.</p></div>
+  </main>
+</div>
+<button class="fab" id="fab" hidden><span aria-hidden="true">+</span>Add</button>
+
+<dialog id="txDlg" aria-labelledby="txTitle">
+  <form class="dlg" id="txForm" novalidate>
+    <div class="dh"><h2 id="txTitle">Add entry</h2><button type="button" class="x" id="txClose" aria-label="Close">×</button></div>
+    <div class="db">
+      <div class="seg" role="group" aria-label="Entry type">
+        <button type="button" data-kind="expense" aria-pressed="true">Expense</button>
+        <button type="button" data-kind="income" aria-pressed="false">Income</button>
+        <button type="button" data-kind="saving" aria-pressed="false">Saving</button>
+      </div>
+      <div>
+        <div class="amt"><select id="txCur" aria-label="Currency"></select><input id="txAmt" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Amount"></div>
+        <div class="conv" id="txConv"></div>
+      </div>
+      <div class="field"><span class="label" id="catLbl">Category</span><div class="cats" id="txCats" role="group" aria-labelledby="catLbl"></div></div>
+      <div class="fields">
+        <label class="field"><span class="label">Date</span><input type="date" id="txDate"></label>
+        <label class="field"><span class="label" id="accLbl">Paid from</span><select id="txAcc"></select></label>
+        <label class="field wide"><span class="label">Note</span><input id="txNote" maxlength="140" placeholder="Optional, e.g. Lulu weekly shop"></label>
+      </div>
+    </div>
+    <div class="df">
+      <button type="button" class="btn danger" id="txDel" hidden>Delete</button>
+      <button type="submit" class="btn primary" id="txSave" disabled>Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="setDlg" aria-labelledby="setTitle">
+  <div class="dlg">
+    <div class="dh"><h2 id="setTitle">Settings</h2><button type="button" class="x" id="setClose" aria-label="Close">×</button></div>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="plan" aria-selected="true">Plan</button>
+      <button role="tab" data-tab="goals" aria-selected="false">Goals</button>
+      <button role="tab" data-tab="scenarios" aria-selected="false">What-ifs</button>
+      <button role="tab" data-tab="budgets" aria-selected="false">Budgets</button>
+      <button role="tab" data-tab="income" aria-selected="false">Income types</button>
+      <button role="tab" data-tab="fx" aria-selected="false">Currencies</button>
+      <button role="tab" data-tab="data" aria-selected="false">Data</button>
+    </div>
+    <div class="db" id="setBody"></div>
+    <div class="df"><span class="note" id="setNote"></span><button type="button" class="btn primary" id="setSave">Save changes</button></div>
+  </div>
+</dialog>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
