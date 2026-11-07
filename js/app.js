@@ -480,6 +480,8 @@ $("#setSave").onclick = async () => {
 };
 
 function download(name, text, type) {
+  // Inside the Holdfast app there are no browser downloads; Android's save dialog is used instead.
+  if (window.HoldfastLedger?.saveFile) { window.HoldfastLedger.saveFile(name, type, text); return; }
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = Object.assign(document.createElement("a"), { href: url, download: name });
   document.body.appendChild(a); a.click(); a.remove();
@@ -539,7 +541,8 @@ window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); S.inst
 // Re-render when the app comes back to the front, so "today" and the period stay current.
 document.addEventListener("visibilitychange", () => { if (!document.hidden && S.settings) render(); });
 
-if ("serviceWorker" in navigator && location.protocol === "https:") {
+const inHoldfast = navigator.userAgent.includes("HoldfastLedger");
+if ("serviceWorker" in navigator && location.protocol === "https:" && !inHoldfast) {
   navigator.serviceWorker.register("sw.js").catch(err => console.warn("Offline mode unavailable", err));
 }
 boot();
